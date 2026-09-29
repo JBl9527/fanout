@@ -1,128 +1,90 @@
-# fanout
+# fanout (美国家宽增强版)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-把 VPN Gate 的公共节点变成本地 SOCKS5 端口：一个端口一个出口 IP。
-再给每个出口挂一个节点链接，客户端连哪个端口就从哪个国家出去。
+> **原项目出处与鸣谢**：  
+> 本项目基于原作者 **Joey** 的优秀开源项目 [byJoey/fanout](https://github.com/byJoey/fanout) 进行深度定制与功能增强。感谢原作者的高质量架构设计与无私开源！  
+> - 原作者博客：[joeyblog.net](https://joeyblog.net)  
+> - 原作者油管：[@joeyblog](https://youtube.com/@joeyblog)  
+> - 原作者交流群：[Telegram 群组](https://t.me/+ft-zI76oovgwNmRh)
 
-节点链接有三种管法：同机装了 3x-ui 或 xray-cf-lite 就接管它们的入站，
-都没装则 fanout 自己跑 Xray，建站、改站、发链接都在同一个界面里完成。
+---
+
+把 VPN Gate 公共节点及自定义住宅节点变成本地 SOCKS5 端口：**一个端口一个出口 IP**。  
+再给每个出口挂一个节点链接，客户端连哪个端口就从哪个出口出去。支持同机接管 3x-ui、xray-cf-lite 或 fanout 自建 Xray。
 
 ![主界面](https://images.joeyblog.net/2026/7/27/fanout-dashboard.png)
 
-四条隧道跑在一台机器上，四个端口对应四个国家的出口，母机自己的 IP 不受影响：
+---
 
-![出口验证](https://images.joeyblog.net/2026/7/26/fanout-6-exit-ip.png)
+### ✨ 本版本独家增强特性
 
-## 原理
+1. **美国家宽（US Residential IP）智能精准识别**：
+   - 自动检测 IP 归属地与网络类型（`CountryCode: US`，`hosting: false`，`proxy: false`）。
+   - 内置主流美国家宽运营商特征库（Comcast Xfinity, Charter Spectrum, AT&T, Verizon Fios, Cox, Frontier, CenturyLink, Altice, Mediacom 等），严格剔除 AWS、DigitalOcean、Vultr、Cloudflare 等机房 IP。
+2. **底层并发 PTR 反向域名解析（防漏判）**：
+   - VPN Gate 志愿者的主机名经常被官方域名覆盖为 `vg*.opengw.net`；系统后台并发对底层 IP 执行快速 PTR 反查，**精准揪出隐藏在动态域名背后的真实美国家宽**，最大化挖掘可用住宅节点！
+3. **美国家宽专属置顶分类**：
+   - 新建出口向导中单列 **【美国家宽 (US-RES)】** 专属标签，显示当前可用空闲数量，支持一键批量开通。
+   - 界面出口列表与终端菜单中带专属绿色高亮徽章（如 `美国家宽 · Comcast`），运营商一目了然。
+4. **支持添加私有美国家宽 / 自定义节点**：
+   - 页面新增「**添加美国家宽节点**」按钮，支持直接录入自建住宅 VPS 或采购的静态住宅 OpenVPN 配置（.ovpn），数据持久化保存在 `/var/lib/fanout/custom_nodes.json`，解决纯公共节点在线率痛点。
+5. **系统稳定性与容错修复**：
+   - **出口探测与心跳多源化**：彻底解决原版仅依赖单一 `api.ipify.org` 因限流或超时导致隧道频繁被误判断线杀掉的问题。
+   - **Netns 拨号超时保护**：设置 15 秒超时控制，避免远程不可达时锁死系统线程。
+   - **网络命名空间残留彻底清理**。
 
-每个节点跑在独立的 network namespace 里，netns 内启动官方 openvpn 客户端。
-SOCKS5 监听在母机，出站连接用 `setns` 切进对应 netns 建立。
+---
 
-这样做的好处：VPN 的路由劫持只影响自己的 netns，不会切断母机的网络；
-多个节点互不干扰，各自一个出口 IP。
+## 安装与快速开始
 
-```
-客户端 ──> 母机 SOCKS5 :随机端口 ──> netns foN ──> openvpn ──> VPN Gate 节点
-```
+需要 root 权限，Linux 系统（依赖 netns 与 `/dev/net/tun`）。
 
-## 安装
-
-需要 root，Linux（依赖 netns）。
+### 全新一键安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/JBl9527/fanout/main/install.sh)
 ```
-
-会自动下载对应架构的预编译二进制。也可以 clone 仓库后在源码目录运行同一个脚本，
-那样会从源码编译（需要 Go 1.21+）。
-
-依赖（openvpn / curl / openssl / iproute / iptables）会按发行版自动装，
-apt、dnf、yum、pacman、apk、zypper 都认。没装 3x-ui 时还会顺带下载一份
-Xray 到 `/var/lib/fanout/bin/`，装了则跳过，入站交给面板管。
-
-服务用 systemd 或 OpenRC 都能装，装完自动开机自启。
 
 **Alpine** 默认不带 bash，先装一下：
-
 ```bash
 apk add bash curl
-bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/JBl9527/fanout/main/install.sh)
 ```
 
-另外 fanout 要在 netns 里跑 openvpn，**宿主必须放开 `/dev/net/tun`**。
-不少 LXC 小鸡没给这个权限，`ls /dev/net/tun` 不存在且 `mknod` 报
-Operation not permitted 的话，这台机器用不了，跟发行版无关。
+---
 
-装完敲 `f` 打开管理菜单：
+## 升级指南（从原版平滑升级）
 
-![管理菜单](https://images.joeyblog.net/2026/7/26/fanout-7-menu.png)
+整个程序在底层编译为单个二进制可执行文件 `/usr/local/bin/fanout`，所有端口、口令、路径和隧道状态保存在 `/var/lib/fanout/` 中。**升级过程不会丢失任何已生成的端口与配置**。
 
-装完会打印管理界面地址、访问路径和口令：
+### 方式 1：原版机器一条命令直接升级
 
+如果你的服务器之前已经安装过原版 fanout，直接在终端执行：
+
+```bash
+REPO="JBl9527/fanout" f update
 ```
-管理界面  http://<你的IP>:8899/gwPuWHvaNr/
-访问口令  f81120ac328d11c11b
+或者再次执行一键安装脚本即可完成覆盖升级：
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/JBl9527/fanout/main/install.sh)
 ```
 
-路径和口令都是随机生成的，分别存在 `/var/lib/fanout/basepath` 和
-`/var/lib/fanout/password`。路径不对一律返回 404，扫端口的看不到这里跑着什么。
+### 方式 2：升级之后后续更新
 
-## 使用
+升级到本版本后，后续系统已默认指向本仓库：
+* 终端敲 `f update` 即自动升级到最新版；
+* 在 Web 管理界面的「设置」中点击「检查更新」与「更新到最新版」即可一键热更新。
 
-界面以**出口**为单位：一行就是一条隧道加上挂在它上面的节点链接。
+---
 
-点「新建出口」，选地区和数量，再选一个已有节点作模板，提交后 fanout 会并行
-拉起隧道、为每个出口复制一份节点链接并绑好，进度按目标逐条回报。原来要手点
-五步跨两栏的事，现在一次点击十几秒完成。
+## 运维管理
 
-![新建出口](https://images.joeyblog.net/2026/7/27/fanout-wizard.png)
-
-每行右侧两个按钮：换一个节点（出口 IP 变、端口不变，已分发的客户端配置不用改），
-或者停掉这个出口。
-
-点节点名进详情，可以改端口、备注、启停，管理客户端，以及改绑到别的出口：
-
-![节点详情](https://images.joeyblog.net/2026/7/27/fanout-detail.png)
-
-一个入站可以挂多套客户端凭据，分发给不同的人；每套都能单独重置，
-重置后旧链接立即失效。
-
-「导出链接」一次性拿到所有节点链接：
-
-![导出链接](https://images.joeyblog.net/2026/7/27/fanout-export.png)
-
-### 节点链接从哪来
-
-同机装了 3x-ui 就直接接管面板里的入站，面板端口、路径、API token 全自动探测，
-开了 SSL 也能识别。没装 3x-ui 时 fanout 自己跑一个 Xray，界面上多一个「新建节点」
-按钮，可以选协议（VLESS / VMess / Trojan）、传输（TCP / WebSocket / gRPC /
-HTTPUpgrade / XHTTP）和安全层（无 / TLS / REALITY）。
-
-![新建节点](https://images.joeyblog.net/2026/7/27/fanout-newnode.png)
-
-REALITY 的密钥对和 shortId 自动生成；TLS 不填证书就生成自签的，分享链接会带上
-证书指纹让客户端固定信任。也可以填自己的证书路径。
-
-接管 3x-ui 和自建这两种模式下，改端口、启停、加删客户端、绑定出口的操作完全一致，
-用起来没有区别。
-
-装了 [xray-cf-lite](https://github.com/byJoey/xray-cf-lite) 的机器会自动接管它生成的
-三个节点。这个模式下节点归 xray-cf-lite 管，fanout 只负责给每个节点指定走哪条出口，
-所以界面上不提供新建、删除和改节点的入口——想改端口或 UUID 去 xray-cf-lite 那边改。
-两边共用同一份 Xray 配置，fanout 只往里加自己前缀的出站和分流规则，互不覆盖。
-
-后端在设置面板里可以随时切换，本机没装的会置灰并说明原因；也可以用
-`-panel 3x-ui` / `-panel native` / `-panel xray-cf-lite` 启动参数固定。
-界面里选过之后会记住，重启仍然生效。
-
-## 运维
-
-装完后敲 `f` 打开管理菜单：启停、看日志、查隧道、改端口/口令/访问路径、更新、卸载。
+装完后敲 `f` 打开管理菜单：
 
 ```
   状态      运行中
-  版本      fanout v0.1.1
+  版本      fanout v0.2.0
   开机自启  enabled
 
   管理地址  http://1.2.3.4:8899/gwPuWHvaNr/
@@ -136,42 +98,19 @@ REALITY 的密钥对和 shortId 自动生成；TLS 不填证书就生成自签�
   11) 更新         12) 卸载
 ```
 
-也可以直接带参数用：
-
+常用命令行参数：
 ```bash
 f info       # 连接信息
-f list       # 隧道列表
-f restart    # 重启
+f list       # 隧道列表（实时标注美国家宽类型）
+f restart    # 重启服务
 f log        # 跟踪日志
-f update     # 更新到最新版
-f uninstall  # 卸载
+f update     # 检查并更新到本仓库最新版本
 ```
 
-隧道状态存在 `/var/lib/fanout/state.json`，重启后自动恢复，端口保持不变。
+---
 
-健康检查每 10 秒跑一次，比对出口 IP 是否还是建立隧道时那个——openvpn 挂掉后
-netns 仍能经母机 NAT 出网，只看通不通会漏判。连续两次不符就自动换节点重连，
-槽位和端口不变，原先指向它的节点链接会自动改绑过去。
+## 许可与声明
 
-## 已知限制
+[MIT License](LICENSE)。
 
-- 只转发 TCP。SOCKS5 收到域名时在本机解析，隧道内不跑 UDP/DNS。
-- VPN Gate 是志愿者节点，有相当比例已下线或满员（`AUTH_FAILED`）。
-  启动时连不上会自动顺着同地区候选往下试，最多 6 个。
-- 管理界面只有随机路径 + 口令登录，没有 HTTPS。放公网建议前面套一层反代。
-
-## 许可
-
-[MIT](LICENSE)。
-
-节点来自 [VPN Gate](https://www.vpngate.net/)（筑波大学的学术实验项目），
-本工具只是调用其公开的节点列表并用官方 openvpn 客户端连接，不修改也不代理其服务。
-使用时请遵守 VPN Gate 的条款和你所在地的法律。
-
-## 交流
-
-- 交流群：<https://t.me/+ft-zI76oovgwNmRh>
-- 视频教程：<https://youtube.com/@joeyblog>
-- 博客：<https://joeyblog.net>
-
-用着有问题、或者想要什么功能，去群里说或提 issue。
+节点来自 [VPN Gate](https://www.vpngate.net/)（筑波大学学术实验项目）及用户自配置的节点，本工具仅调用接口进行网络聚合与 SOCKS5 转发，请遵守当地法律法规。

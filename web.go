@@ -67,6 +67,9 @@ main{padding:14px 16px 40px;max-width:1180px;margin:0 auto}
 .chip:hover{border-color:var(--accent);color:var(--text)}
 .chip.none{border-style:dashed;cursor:default}
 .chip.none:hover{border-color:var(--line);color:var(--dim)}
+.chip.res{border-color:rgba(63,166,107,.5);color:var(--ok);background:rgba(63,166,107,.12);font-weight:600}
+.rg.res{border-color:rgba(63,166,107,.5);background:rgba(63,166,107,.08)}
+.rg.res.sel{border-color:var(--ok);background:rgba(63,166,107,.2)}
 .orphan{margin-top:18px;border:1px solid var(--line);border-radius:6px;
   background:var(--panel);padding:10px 12px}
 .orphan .top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
@@ -203,7 +206,7 @@ textarea:focus{outline:none;border-color:var(--accent)}
     <a href="https://t.me/+ft-zI76oovgwNmRh" target="_blank" rel="noopener">交流群</a>
     <a href="https://youtube.com/@joeyblog" target="_blank" rel="noopener">油管</a>
     <a href="https://joeyblog.net" target="_blank" rel="noopener">博客</a>
-    <a href="https://github.com/byJoey/fanout" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/JBl9527/fanout" target="_blank" rel="noopener">GitHub</a>
   </nav>
 </header>
 
@@ -225,6 +228,10 @@ textarea:focus{outline:none;border-color:var(--accent)}
     <button id="newnode" title="新建一个节点（协议与端口）">
       <svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/></svg>
       新建节点
+    </button>
+    <button id="newcustomnode" title="添加美国家宽或自定义节点">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      添加美国家宽节点
     </button>
     <button class="primary" id="newexit">
       <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
@@ -480,6 +487,55 @@ textarea:focus{outline:none;border-color:var(--accent)}
   </div>
 </div>
 
+<div class="modal" id="customnodebox">
+  <div class="sheet">
+    <div class="head">
+      <h2>添加美国家宽 / 自定义节点</h2>
+      <span class="spacer"></span>
+      <button class="icon" data-close="customnodebox" title="关闭">
+        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <div class="body">
+      <label class="f">
+        <span>节点名称 / 备注</span>
+        <input type="text" id="cnName" placeholder="例如：US-Home-Comcast-1" spellcheck="false">
+      </label>
+      <div class="setrow" style="margin-top:0;margin-bottom:16px">
+        <label class="f" style="margin:0">
+          <span>国家地区</span>
+          <select id="cnCountry">
+            <option value="US">美国 (United States)</option>
+            <option value="JP">日本 (Japan)</option>
+            <option value="KR">韩国 (Korea)</option>
+            <option value="HK">香港 (Hong Kong)</option>
+            <option value="SG">新加坡 (Singapore)</option>
+            <option value="GB">英国 (United Kingdom)</option>
+            <option value="DE">德国 (Germany)</option>
+          </select>
+        </label>
+        <label class="f" style="margin:0">
+          <span>运营商 / ISP</span>
+          <input type="text" id="cnISP" placeholder="例如：Comcast / Spectrum / AT&T" spellcheck="false">
+        </label>
+      </div>
+      <label class="chk" style="margin-bottom:16px">
+        <input type="checkbox" id="cnIsRes" checked>
+        <span>标记为美国家宽（住宅 IP）</span>
+      </label>
+      <label class="f">
+        <span>OpenVPN 配置文件内容 (.ovpn)</span>
+        <textarea id="cnConfig" placeholder="粘贴 .ovpn 完整内容（包含 client、remote、证书等）..." style="min-height:160px"></textarea>
+      </label>
+    </div>
+    <div class="foot">
+      <span class="spacer"></span>
+      <button data-close="customnodebox">取消</button>
+      <button class="primary" id="cnSave">保存节点</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -569,6 +625,9 @@ function renderExits(){
 
   list.innerHTML = view.exits.map(e => {
     const label = e.exit_ip || (e.status === 'starting' ? '连接中…' : '—');
+    const resBadge = e.is_residential
+      ? '<span class="chip res" title="' + esc(e.isp ? ('美国家宽 · ' + e.isp) : '美国家宽') + '">美国家宽' + (e.isp ? ' · ' + esc(e.isp) : '') + '</span>'
+      : '';
     const chips = (e.inbounds || []).length
       ? e.inbounds.map(i => '<button class="chip" data-detail="' + i.id + '" title="'
           + esc((i.remark || i.protocol) + ' · ' + i.protocol + ' :' + i.port) + '">'
@@ -579,12 +638,13 @@ function renderExits(){
     // 国家码和全名一起显示是冗余的，只在两者确实不同时才补全名
     const place = e.country && e.country.toUpperCase() !== (e.region || '').toUpperCase()
       ? esc(e.region) + ' ' + esc(e.country) : esc(e.region || '—');
+    const ispDesc = (e.isp && !e.is_residential) ? ' · ' + esc(e.isp) : '';
     return '<div class="exit">'
       + '<div class="row">'
       +   '<span class="dot ' + e.status + '" title="' + (STATUS[e.status] || e.status) + '"></span>'
       +   '<span class="ip">' + esc(label) + '</span>'
-      +   '<span class="meta">' + place + ' · ' + esc(e.host) + '</span>'
-      +   '<span class="chips">' + chips + '</span>'
+      +   '<span class="meta">' + place + ispDesc + ' · ' + esc(e.host) + '</span>'
+      +   '<span class="chips">' + resBadge + chips + '</span>'
       +   '<span class="socks"><button data-cred="' + e.slot + '" title="SOCKS5 访问凭据">'
       +     ICON.lock + ':' + e.port + '</button></span>'
       +   '<span class="acts">'
@@ -683,9 +743,14 @@ function renderRegions(){
     || r.code.toLowerCase().includes(kw) || r.name.toLowerCase().includes(kw));
   $('#regions').innerHTML = ['<button class="rg' + (region === '' ? ' sel' : '')
       + '" data-rg=""><b>不限地区</b><em>速度优先</em></button>']
-    .concat(list.map(r => '<button class="rg' + (region === r.code ? ' sel' : '')
-      + '" data-rg="' + esc(r.code) + '"><b>' + esc(r.code) + ' ' + esc(r.name) + '</b>'
-      + '<em>' + r.available + ' 个空闲 · ' + r.best_speed_mbps.toFixed(0) + ' Mbps</em></button>'))
+    .concat(list.map(r => {
+      const isRes = r.code === 'US-RES';
+      const cls = 'rg' + (isRes ? ' res' : '') + (region === r.code ? ' sel' : '');
+      const title = isRes ? '美国家宽 (住宅 IP)' : (esc(r.code) + ' ' + esc(r.name));
+      const spd = r.best_speed_mbps ? (' · ' + r.best_speed_mbps.toFixed(0) + ' Mbps') : '';
+      return '<button class="' + cls + '" data-rg="' + esc(r.code) + '"><b>' + title + '</b>'
+        + '<em>' + r.available + ' 个空闲' + spd + '</em></button>';
+    }))
     .join('');
   updateAvail();
 }
@@ -762,6 +827,13 @@ document.addEventListener('click', e => {
     $('#nnhint').textContent = '';
     syncNodeForm();
     openModal('newnodebox');
+  }
+  if(e.target.closest('#newcustomnode')){
+    $('#cnName').value = '';
+    $('#cnISP').value = '';
+    $('#cnConfig').value = '';
+    $('#cnIsRes').checked = true;
+    openModal('customnodebox');
   }
 });
 
@@ -1326,6 +1398,37 @@ $('#setSave').onclick = async e => {
     }
   }catch(err){ toast(err.message, true); }
   e.target.disabled = false;
+};
+
+$('#cnSave').onclick = async e => {
+  const name = $('#cnName').value.trim();
+  const cfg = $('#cnConfig').value.trim();
+  if(!name || !cfg){
+    toast('请填写节点名称和 OpenVPN 配置', true);
+    return;
+  }
+  e.target.disabled = true;
+  try{
+    await api('/api/custom-nodes/add', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name: name,
+        country_code: $('#cnCountry').value,
+        isp: $('#cnISP').value.trim(),
+        is_residential: $('#cnIsRes').checked,
+        config: cfg
+      })
+    });
+    toast('美国家宽节点已保存');
+    closeModal('customnodebox');
+    regionsLoaded = false;
+    poll();
+  }catch(err){
+    toast(err.message, true);
+  }finally{
+    e.target.disabled = false;
+  }
 };
 
 poll();

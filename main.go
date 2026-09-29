@@ -112,6 +112,10 @@ func main() {
 	mux.HandleFunc("/api/panel/client/del", apiClientDelete(mgr))
 	mux.HandleFunc("/api/panel/client/reset", apiClientReset(mgr))
 	mux.HandleFunc("/api/panel/mode", apiPanelMode(*workDir))
+	mux.HandleFunc("/api/custom-nodes", apiCustomNodes(*workDir))
+	mux.HandleFunc("/api/custom-nodes/add", apiCustomNodeAdd(*workDir, mgr))
+	mux.HandleFunc("/api/custom-nodes/delete", apiCustomNodeDelete(*workDir, mgr))
+	mux.HandleFunc("/api/detect-ip", apiDetectIP(mgr))
 
 	auth, created, err := NewAuth(*workDir)
 	if err != nil {
@@ -815,3 +819,85 @@ func apiInboundCreate(m *Manager) http.HandlerFunc {
 		})
 	}
 }
+
+func apiCustomNodes(workDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		list, err := loadCustomNodes(workDir)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if list == nil {
+			list = []CustomNode{}
+		}
+		writeJSON(w, http.StatusOK, list)
+	}
+}
+
+func apiCustomNodeAdd(workDir string, m *Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "需要 POST"})
+			return
+		}
+		var node CustomNode
+		if err := json.NewDecoder(r.Body).Decode(&node); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+			return
+		}
+		if err := addCustomNode(workDir, node); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		_, _ = m.RefreshNodes()
+		writeJSON(w, http.StatusOK, map[string]string{"ok": "添加成功"})
+	}
+}
+
+func apiCustomNodeDelete(workDir string, m *Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "需要 POST"})
+			return
+		}
+		var in struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+			return
+		}
+		if err := deleteCustomNode(workDir, in.Name); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		_, _ = m.RefreshNodes()
+		writeJSON(w, http.StatusOK, map[string]string{"ok": "删除成功"})
+	}
+}
+
+func apiDetectIP(m *Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slotStr := r.URL.Query().Get("slot")
+		if slotStr != "" {
+			slot, err := strconv.Atoi(slotStr)
+			if err == nil {
+				m.mu.RLock()
+				t, ok := m.tunnels[slot]
+				m.mu.RUnlock()
+				if ok && t.Status == "up" {
+					info, probeErr := probeExitIPInfo(t.nsName())
+					if probeErr == nil {
+						writeJSON(w, http.StatusOK, info)
+						return
+					}
+				}
+			}
+		}
+		ip := hostPublicIP()
+		info := &IPInfo{IP: ip, CountryCode: "US"}
+		JudgeIPType(info)
+		writeJSON(w, http.StatusOK, info)
+	}
+}
+

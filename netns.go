@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -42,7 +43,8 @@ func dialerInNetns(nsName string) func(network, addr string) (net.Conn, error) {
 
 			// 隧道内只有 IPv4 路由。不限定的话 net.Dial 可能选中 AAAA 记录，
 			// 那条连接会绕开隧道从母机的 IPv6 出去，暴露真实地址。
-			conn, dialErr := net.Dial(forceIPv4Network(network), addr)
+			dialer := net.Dialer{Timeout: 15 * time.Second}
+			conn, dialErr := dialer.Dial(forceIPv4Network(network), addr)
 
 			if err := unix.Setns(int(origin.Fd()), unix.CLONE_NEWNET); err != nil {
 				if conn != nil {

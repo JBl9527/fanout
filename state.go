@@ -17,8 +17,11 @@ type persistedTunnel struct {
 	Country     string `json:"country"`
 	Config      string `json:"config"`
 	// SOCKS5 凭据要存盘：用户已经把它分发给客户端了，重启后变掉等于全断
-	SocksUser string `json:"socks_user,omitempty"`
-	SocksPass string `json:"socks_pass,omitempty"`
+	SocksUser     string `json:"socks_user,omitempty"`
+	SocksPass     string `json:"socks_pass,omitempty"`
+	IsResidential bool   `json:"is_residential,omitempty"`
+	ISP           string `json:"isp,omitempty"`
+	IPType        string `json:"ip_type,omitempty"`
 }
 
 type persistedState struct {
@@ -37,14 +40,17 @@ func (m *Manager) saveState() error {
 			continue
 		}
 		st.Tunnels = append(st.Tunnels, persistedTunnel{
-			Slot:        t.Slot,
-			Port:        t.Port,
-			HostName:    t.Node.HostName,
-			CountryCode: t.Node.CountryCode,
-			Country:     t.Node.Country,
-			Config:      t.Node.Config,
-			SocksUser:   t.Cred.User,
-			SocksPass:   t.Cred.Pass,
+			Slot:          t.Slot,
+			Port:          t.Port,
+			HostName:      t.Node.HostName,
+			CountryCode:   t.Node.CountryCode,
+			Country:       t.Node.Country,
+			Config:        t.Node.Config,
+			SocksUser:     t.Cred.User,
+			SocksPass:     t.Cred.Pass,
+			IsResidential: t.IsResidential || t.Node.IsResidential,
+			ISP:           t.ISP,
+			IPType:        t.IPType,
 		})
 	}
 
@@ -92,6 +98,12 @@ func (m *Manager) restoreState() (int, error) {
 			}
 		}
 		node.Config = p.Config
+		if p.IsResidential {
+			node.IsResidential = true
+		}
+		if p.ISP != "" {
+			node.ISP = p.ISP
+		}
 		// 从旧版本升上来的状态文件没有凭据字段，补一套新的
 		cred := SocksCred{User: p.SocksUser, Pass: p.SocksPass}
 		if cred.User == "" || cred.Pass == "" {
@@ -102,11 +114,14 @@ func (m *Manager) restoreState() (int, error) {
 			cred = gen
 		}
 		t := &Tunnel{
-			Slot:   p.Slot,
-			Port:   p.Port,
-			Node:   node,
-			Status: "starting",
-			Cred:   cred,
+			Slot:          p.Slot,
+			Port:          p.Port,
+			Node:          node,
+			Status:        "starting",
+			Cred:          cred,
+			IsResidential: p.IsResidential,
+			ISP:           p.ISP,
+			IPType:        p.IPType,
 		}
 		m.mu.Lock()
 		m.tunnels[p.Slot] = t

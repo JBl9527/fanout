@@ -5,7 +5,7 @@ set -uo pipefail
 WORK_DIR=/var/lib/fanout
 SERVICE=fanout
 BIN=/usr/local/bin/fanout
-REPO="${REPO:-byJoey/fanout}"
+REPO="${REPO:-JBl9527/fanout}"
 
 G='\033[0;32m'; R='\033[0;31m'; Y='\033[0;33m'; B='\033[0;36m'; D='\033[2m'; N='\033[0m'
 
@@ -86,7 +86,10 @@ web_port() {
 }
 
 public_ip() {
-  curl -s --max-time 6 http://api.ipify.org 2>/dev/null || echo "<本机IP>"
+  curl -s --max-time 5 http://api.ipify.org 2>/dev/null \
+    || curl -s --max-time 5 https://ipv4.icanhazip.com 2>/dev/null \
+    || curl -s --max-time 5 http://ifconfig.me/ip 2>/dev/null \
+    || echo "<本机IP>"
 }
 
 pause() {
@@ -138,16 +141,19 @@ list_tunnels() {
   if [[ ! -s "$ck.json" ]] || ! grep -q '"port"' "$ck.json" 2>/dev/null; then
     echo "  还没有隧道，去网页里添加"
   else
-    printf "  %-10s%-11s%-18s%s\n" "端口" "状态" "出口 IP" "节点"
+    printf "  %-10s%-11s%-18s%-16s%s\n" "端口" "状态" "出口 IP" "网络类型" "节点"
     # 按 {"slot" 切分而不是按 }：node 是嵌套对象，按 } 切会把一条记录劈成两半
     sed 's/{"slot"/\n{"slot"/g' "$ck.json" | while IFS= read -r line; do
       case "$line" in *'"slot"'*) ;; *) continue ;; esac
-      p=$(echo "$line"  | sed -n 's/.*"port":\([0-9]*\).*/\1/p')
-      st=$(echo "$line" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')
-      ip=$(echo "$line" | sed -n 's/.*"exit_ip":"\([^"]*\)".*/\1/p')
-      hn=$(echo "$line" | sed -n 's/.*"hostname":"\([^"]*\)".*/\1/p')
+      p=$(echo "$line"   | sed -n 's/.*"port":\([0-9]*\).*/\1/p')
+      st=$(echo "$line"  | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')
+      ip=$(echo "$line"  | sed -n 's/.*"exit_ip":"\([^"]*\)".*/\1/p')
+      hn=$(echo "$line"  | sed -n 's/.*"hostname":"\([^"]*\)".*/\1/p')
+      res=$(echo "$line" | sed -n 's/.*"is_residential":\([^,}]*\).*/\1/p')
       [[ -z $p ]] && continue
-      printf "  %-10s%-11s%-18s%s\n" "$p" "${st:--}" "${ip:--}" "${hn:--}"
+      tag="${D}普通${N}"
+      [[ "$res" == "true" ]] && tag="${G}美国家宽${N}"
+      printf "  %-10s%-11s%-18s%-24b%s\n" "$p" "${st:--}" "${ip:--}" "$tag" "${hn:--}"
     done
   fi
   rm -f "$ck.json"
@@ -252,7 +258,8 @@ show_links() {
   echo -e "  交流群  ${B}https://t.me/+ft-zI76oovgwNmRh${N}"
   echo -e "  油管    ${B}https://youtube.com/@joeyblog${N}"
   echo -e "  博客    ${B}https://joeyblog.net${N}"
-  echo -e "  项目    ${B}https://github.com/byJoey/fanout${N}"
+  echo -e "  原作者  ${B}https://github.com/byJoey/fanout${N}"
+  echo -e "  项目    ${B}https://github.com/JBl9527/fanout${N}"
   echo
   echo -e "  ${D}用着有问题、或者想要什么功能，去群里说或提 issue。${N}"
 }

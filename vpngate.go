@@ -38,14 +38,17 @@ func mirrorAccessKey() string {
 
 // Node 是一个 VPN Gate 节点。
 type Node struct {
-	HostName    string  `json:"hostname"`
-	IP          string  `json:"ip"`
-	Country     string  `json:"country"`
-	CountryCode string  `json:"country_code"`
-	Ping        int     `json:"ping"`
-	SpeedMbps   float64 `json:"speed_mbps"`
-	Sessions    int     `json:"sessions"`
-	Config      string  `json:"-"` // 解码后的 .ovpn 内容
+	HostName      string  `json:"hostname"`
+	IP            string  `json:"ip"`
+	Country       string  `json:"country"`
+	CountryCode   string  `json:"country_code"`
+	Ping          int     `json:"ping"`
+	SpeedMbps     float64 `json:"speed_mbps"`
+	Sessions      int     `json:"sessions"`
+	Config        string  `json:"-"` // 解码后的 .ovpn 内容
+	IsResidential bool    `json:"is_residential"`
+	ISP           string  `json:"isp,omitempty"`
+	Source        string  `json:"source,omitempty"` // "vpngate" | "custom"
 }
 
 // fetchNodes 拉取并解析 VPN Gate 的节点列表。
@@ -150,15 +153,26 @@ func parseNodeCSV(body string) ([]Node, error) {
 		ping, _ := strconv.Atoi(get("Ping"))
 		speed, _ := strconv.ParseFloat(get("Speed"), 64)
 		sessions, _ := strconv.Atoi(get("NumVpnSessions"))
+		cc := strings.ToUpper(strings.TrimSpace(get("CountryShort")))
+		hostName := get("HostName")
+		isRes := false
+		isp := ""
+		if cc == "US" && isUSResidentialHost(hostName) {
+			isRes = true
+			isp = "Residential Broadband"
+		}
 		nodes = append(nodes, Node{
-			HostName:    get("HostName"),
-			IP:          get("IP"),
-			Country:     get("CountryLong"),
-			CountryCode: get("CountryShort"),
-			Ping:        ping,
-			SpeedMbps:   speed / 1e6,
-			Sessions:    sessions,
-			Config:      string(cfg),
+			HostName:      hostName,
+			IP:            get("IP"),
+			Country:       get("CountryLong"),
+			CountryCode:   cc,
+			Ping:          ping,
+			SpeedMbps:     speed / 1e6,
+			Sessions:      sessions,
+			Config:        string(cfg),
+			IsResidential: isRes,
+			ISP:           isp,
+			Source:        "vpngate",
 		})
 	}
 	if len(nodes) == 0 {

@@ -119,6 +119,7 @@ func (m *Manager) waitUp(t *Tunnel) {
 }
 
 // pickNodes 按地区挑 count 个还没被占用的节点，速度优先。
+// 支持指定 "US-RES" / "美国家宽" 专门挑选美国家宽节点。
 func (m *Manager) pickNodes(region string, count int) ([]Node, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -128,6 +129,8 @@ func (m *Manager) pickNodes(region string, count int) ([]Node, error) {
 		used[t.Node.HostName] = true
 	}
 
+	isUSRes := strings.EqualFold(region, "US-RES") || strings.EqualFold(region, "US-RESIDENTIAL") || region == "美国家宽"
+
 	var out []Node
 	for _, n := range m.nodes {
 		if len(out) >= count {
@@ -136,12 +139,19 @@ func (m *Manager) pickNodes(region string, count int) ([]Node, error) {
 		if used[n.HostName] {
 			continue
 		}
-		if region != "" && !strings.EqualFold(n.CountryCode, region) {
+		if isUSRes {
+			if !(n.IsResidential && strings.EqualFold(n.CountryCode, "US")) {
+				continue
+			}
+		} else if region != "" && !strings.EqualFold(n.CountryCode, region) {
 			continue
 		}
 		out = append(out, n)
 	}
 	if len(out) == 0 {
+		if isUSRes {
+			return nil, fmt.Errorf("暂无可用的美国家宽空闲节点，可通过「添加美国家宽节点」录入或稍后重试")
+		}
 		if region != "" {
 			return nil, fmt.Errorf("%s 没有可用的空闲节点", region)
 		}
@@ -160,6 +170,7 @@ type RegionStat struct {
 }
 
 // Regions 汇总各地区还剩多少空闲节点，按可用数量降序。
+// 若存在美国家宽节点，单列 "US-RES" 置顶供一键选择。
 func (m *Manager) Regions() []RegionStat {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -169,11 +180,25 @@ func (m *Manager) Regions() []RegionStat {
 		used[t.Node.HostName] = true
 	}
 
+	var usResAvailable int
+	var usResBestSpeed float64
+	var usResBestPing int
+
 	byCode := map[string]*RegionStat{}
 	for _, n := range m.nodes {
 		if used[n.HostName] || n.CountryCode == "" {
 			continue
 		}
+		if n.IsResidential && strings.EqualFold(n.CountryCode, "US") {
+			usResAvailable++
+			if n.SpeedMbps > usResBestSpeed {
+				usResBestSpeed = n.SpeedMbps
+			}
+			if n.Ping > 0 && (usResBestPing == 0 || n.Ping < usResBestPing) {
+				usResBestPing = n.Ping
+			}
+		}
+
 		s := byCode[n.CountryCode]
 		if s == nil {
 			s = &RegionStat{Code: n.CountryCode, Name: n.Country, BestPing: n.Ping}
@@ -188,21 +213,36 @@ func (m *Manager) Regions() []RegionStat {
 		}
 	}
 
-	out := make([]RegionStat, 0, len(byCode))
-	for _, s := range byCode {
-		out = append(out, *s)
+	out := make([]RegionStat, 0, len(byCode)+1)
+	if usResAvailable > 0 {
+		out = append(out, RegionStat{
+			Code:      "US-RES",
+			Name:      "美国家宽",
+			Available: usResAvailable,
+			BestPing:  usResBestPing,
+			BestSpeed: usResBestSpeed,
+		})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Available != out[j].Available {
-			return out[i].Available > out[j].Available
+
+	var regular []RegionStat
+	for _, s := range byCode {
+		regular = append(regular, *s)
+	}
+	sort.Slice(regular, func(i, j int) bool {
+		if regular[i].Available != regular[j].Available {
+			return regular[i].Available > regular[j].Available
 		}
-		return out[i].Code < out[j].Code
+		return regular[i].Code < regular[j].Code
 	})
+	out = append(out, regular...)
 	return out
 }
 
 // regionLabel 给出口起一个人能读的名字。
 func regionLabel(n Node) string {
+	if n.IsResidential && strings.EqualFold(n.CountryCode, "US") {
+		return "美国家宽"
+	}
 	if n.CountryCode != "" {
 		return n.CountryCode
 	}

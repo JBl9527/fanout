@@ -28,9 +28,12 @@ type Exit struct {
 	Err     string    `json:"err,omitempty"`
 	Since   time.Time `json:"since"`
 	// SOCKS5 凭据：界面要能看、能复制、能改
-	SocksUser string        `json:"socks_user"`
-	SocksPass string        `json:"socks_pass"`
-	Inbounds  []ExitInbound `json:"inbounds"`
+	SocksUser     string        `json:"socks_user"`
+	SocksPass     string        `json:"socks_pass"`
+	IsResidential bool          `json:"is_residential"`
+	ISP           string        `json:"isp,omitempty"`
+	IPType        string        `json:"ip_type,omitempty"`
+	Inbounds      []ExitInbound `json:"inbounds"`
 }
 
 // ExitsView 是主界面需要的全部数据。
@@ -111,6 +114,9 @@ func (m *Manager) ExitsOf() ExitsView {
 			Region: t.Node.CountryCode, Country: t.Node.Country,
 			ExitIP: t.ExitIP, Status: t.Status, Err: t.Err, Since: t.Since,
 			SocksUser: cred.User, SocksPass: cred.Pass,
+			IsResidential: t.IsResidential || t.Node.IsResidential,
+			ISP:           t.ISP,
+			IPType:        t.IPType,
 		})
 	}
 

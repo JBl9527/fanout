@@ -26,10 +26,13 @@ type Tunnel struct {
 	Port   int       `json:"port"`
 	Node   Node      `json:"node"`
 	Status string    `json:"status"` // starting | up | failed | stopped
-	ExitIP string    `json:"exit_ip"`
-	Err    string    `json:"err,omitempty"`
-	Since  time.Time `json:"since"`
-	Cred   SocksCred `json:"cred"`
+	ExitIP        string    `json:"exit_ip"`
+	IsResidential bool      `json:"is_residential"`
+	ISP           string    `json:"isp,omitempty"`
+	IPType        string    `json:"ip_type,omitempty"`
+	Err           string    `json:"err,omitempty"`
+	Since         time.Time `json:"since"`
+	Cred          SocksCred `json:"cred"`
 
 	ns       string
 	listener net.Listener
@@ -133,6 +136,7 @@ func (t *Tunnel) teardownNetns() {
 	runQuiet("iptables", "-w", "5", "-t", "nat", "-D", "POSTROUTING", "-s", cidr, "-j", "MASQUERADE")
 	runQuiet("iptables", "-w", "5", "-D", "FORWARD", "-s", cidr, "-j", "ACCEPT")
 	runQuiet("iptables", "-w", "5", "-D", "FORWARD", "-d", cidr, "-j", "ACCEPT")
+	_ = os.RemoveAll(filepath.Join("/etc/netns", ns))
 }
 
 // startOpenVPN 在 netns 内拉起 openvpn，并等待 tun0 拿到地址。
@@ -240,18 +244,17 @@ func (t *Tunnel) setCredential(c SocksCred) {
 	t.Cred = c
 }
 
-// probeExitIP 通过隧道查询出口 IP，用于确认这条隧道确实换了 IP。
+// probeExitIP 通过隧道查询出口 IP 及网络类型（美国家宽等）。
 func (t *Tunnel) probeExitIP() (string, error) {
-	out, err := exec.Command("ip", "netns", "exec", t.nsName(),
-		"curl", "-s", "--max-time", "15", "http://api.ipify.org").Output()
+	info, err := probeExitIPInfo(t.nsName())
 	if err != nil {
 		return "", fmt.Errorf("查询出口 IP 失败: %w", err)
 	}
-	ip := strings.TrimSpace(string(out))
-	if net.ParseIP(ip) == nil {
-		return "", fmt.Errorf("出口 IP 返回异常: %q", ip)
-	}
-	return ip, nil
+	t.ExitIP = info.IP
+	t.IsResidential = info.IsResidential
+	t.ISP = info.ISP
+	t.IPType = info.IPType
+	return info.IP, nil
 }
 
 // stop 停止这条隧道并清理它占用的所有资源。

@@ -5,6 +5,7 @@ import (
 	"log"
 	"os/exec"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,17 +29,40 @@ func NewManager(maxSlots int, workDir string) *Manager {
 	}
 }
 
-// RefreshNodes 重新拉取节点列表。
+// RefreshNodes 重新拉取节点列表，并合并自定义美国家宽节点。
 func (m *Manager) RefreshNodes() (int, error) {
 	nodes, err := fetchNodes(60 * time.Second)
-	if err != nil {
+	// 标记 VPN Gate 中的美国家宽节点（特征匹配）
+	for i := range nodes {
+		if strings.EqualFold(nodes[i].CountryCode, "US") {
+			if isUSResidentialHost(nodes[i].HostName) {
+				nodes[i].IsResidential = true
+				if nodes[i].ISP == "" {
+					nodes[i].ISP = extractISPFromName(nodes[i].HostName)
+				}
+			}
+		}
+	}
+	// 对未识别域名的美国节点做快速并发反查（最大化捕获家宽节点，防止 opengw.net 掩盖）
+	enrichUSResidentialNodes(nodes)
+
+	// 载入自定义节点
+	customs, _ := loadCustomNodes(m.workDir)
+	var merged []Node
+	for _, c := range customs {
+		merged = append(merged, c.ToNode())
+	}
+	if err == nil {
+		merged = append(merged, nodes...)
+	} else if len(merged) == 0 {
 		return 0, err
 	}
+
 	m.mu.Lock()
-	m.nodes = nodes
+	m.nodes = merged
 	m.fetched = time.Now()
 	m.mu.Unlock()
-	return len(nodes), nil
+	return len(merged), err
 }
 
 func (m *Manager) Nodes() ([]Node, time.Time) {
