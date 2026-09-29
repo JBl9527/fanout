@@ -214,15 +214,13 @@ func (m *Manager) Regions() []RegionStat {
 	}
 
 	out := make([]RegionStat, 0, len(byCode)+1)
-	if usResAvailable > 0 {
-		out = append(out, RegionStat{
-			Code:      "US-RES",
-			Name:      "美国家宽",
-			Available: usResAvailable,
-			BestPing:  usResBestPing,
-			BestSpeed: usResBestSpeed,
-		})
-	}
+	out = append(out, RegionStat{
+		Code:      "US-RES",
+		Name:      "美国家宽",
+		Available: usResAvailable,
+		BestPing:  usResBestPing,
+		BestSpeed: usResBestSpeed,
+	})
 
 	var regular []RegionStat
 	for _, s := range byCode {

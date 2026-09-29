@@ -75,7 +75,9 @@ INITEOF
 
 svc_enable_start() {
   if [[ "$INIT_SYS" == systemd ]]; then
-    systemctl enable --now fanout
+    systemctl daemon-reload
+    systemctl enable fanout
+    systemctl restart fanout
   else
     rc-update add fanout default >/dev/null 2>&1 || true
     rc-service fanout restart

@@ -8,6 +8,9 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 	_, _ = w.Write([]byte(indexHTML))
 }
 
@@ -748,8 +751,9 @@ function renderRegions(){
       const cls = 'rg' + (isRes ? ' res' : '') + (region === r.code ? ' sel' : '');
       const title = isRes ? '美国家宽 (住宅 IP)' : (esc(r.code) + ' ' + esc(r.name));
       const spd = r.best_speed_mbps ? (' · ' + r.best_speed_mbps.toFixed(0) + ' Mbps') : '';
+      const sub = r.available ? (r.available + ' 个空闲' + spd) : (isRes ? '0 个空闲（可手动导入）' : '0 个空闲');
       return '<button class="' + cls + '" data-rg="' + esc(r.code) + '"><b>' + title + '</b>'
-        + '<em>' + r.available + ' 个空闲' + spd + '</em></button>';
+        + '<em>' + sub + '</em></button>';
     }))
     .join('');
   updateAvail();
@@ -765,9 +769,14 @@ function updateAvail(){
   const avail = availOf(region);
   const want = Number($('#count').value) || 0;
   const hint = $('#availhint');
-  hint.textContent = avail ? '可用 ' + avail + ' 个节点' : '这个地区没有空闲节点';
-  hint.className = 'hint' + (want > avail ? ' bad' : '');
-  if(want > avail && avail) hint.textContent = '只剩 ' + avail + ' 个，将全部使用';
+  if(region === 'US-RES' && !avail){
+    hint.textContent = '暂无空闲美国家宽节点，可点击右上角「添加美国家宽节点」导入';
+    hint.className = 'hint bad';
+  } else {
+    hint.textContent = avail ? '可用 ' + avail + ' 个节点' : '这个地区没有空闲节点';
+    hint.className = 'hint' + (want > avail ? ' bad' : '');
+    if(want > avail && avail) hint.textContent = '只剩 ' + avail + ' 个，将全部使用';
+  }
   $('#go').disabled = !avail;
 }
 
