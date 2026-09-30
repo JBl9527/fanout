@@ -158,7 +158,9 @@ func (t *Tunnel) startOpenVPN(dir string) error {
 		"--auth-nocache",
 		"--dev", "tun0",
 		"--connect-retry-max", "2",
-		"--connect-timeout", "20",
+		"--connect-timeout", "12",
+		"--resolv-retry", "5",
+		"--mssfix", "1360",
 		"--data-ciphers", "AES-128-CBC:AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305",
 		"--verb", "3",
 		"--log", logPath,
@@ -170,7 +172,7 @@ func (t *Tunnel) startOpenVPN(dir string) error {
 	go cmd.Wait() // 回收子进程，避免僵尸
 
 	// openvpn 建好 tun0 前 SOCKS5 无法正常出网，这里等它就绪
-	deadline := time.Now().Add(40 * time.Second)
+	deadline := time.Now().Add(25 * time.Second)
 	for time.Now().Before(deadline) {
 		if out, err := exec.Command("ip", "netns", "exec", ns, "ip", "-4", "addr", "show", "tun0").Output(); err == nil {
 			if strings.Contains(string(out), "inet ") {

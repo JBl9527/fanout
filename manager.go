@@ -32,13 +32,16 @@ func NewManager(maxSlots int, workDir string) *Manager {
 // RefreshNodes 重新拉取节点列表，并合并自定义美国家宽节点。
 func (m *Manager) RefreshNodes() (int, error) {
 	nodes, err := fetchNodes(60 * time.Second)
-	// 标记 VPN Gate 中的美国家宽节点（特征匹配）
+	// 标记 VPN Gate 中的美国家宽节点（特征匹配与 Operator 客户端判断）
 	for i := range nodes {
 		if strings.EqualFold(nodes[i].CountryCode, "US") {
-			if isUSResidentialHost(nodes[i].HostName) {
+			if isUSResidentialHost(nodes[i].HostName) || isUSResidentialOperator(nodes[i].Operator) {
 				nodes[i].IsResidential = true
 				if nodes[i].ISP == "" {
 					nodes[i].ISP = extractISPFromName(nodes[i].HostName)
+					if (nodes[i].ISP == "" || nodes[i].ISP == "Residential Broadband") && nodes[i].Operator != "" {
+						nodes[i].ISP = extractISPFromName(nodes[i].Operator)
+					}
 				}
 			}
 		}
@@ -285,6 +288,24 @@ func (m *Manager) candidatesFor(first Node) []Node {
 	}
 
 	out := []Node{first}
+
+	// 如果首选节点是家宽节点，优先把同地区的其他家宽节点排在候选列表前面
+	if first.IsResidential {
+		for _, n := range m.nodes {
+			if len(out) >= maxTries {
+				break
+			}
+			if used[n.HostName] || !n.IsResidential {
+				continue
+			}
+			if region != "" && !strings.EqualFold(n.CountryCode, region) {
+				continue
+			}
+			used[n.HostName] = true
+			out = append(out, n)
+		}
+	}
+
 	for _, n := range m.nodes {
 		if len(out) >= maxTries {
 			break
@@ -293,7 +314,7 @@ func (m *Manager) candidatesFor(first Node) []Node {
 			continue
 		}
 		// 地区实在拿不到时不做限制，总比连不上强
-		if region != "" && n.CountryCode != region {
+		if region != "" && !strings.EqualFold(n.CountryCode, region) {
 			continue
 		}
 		out = append(out, n)

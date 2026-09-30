@@ -198,6 +198,20 @@ func probeExitIPInfo(nsName string) (*IPInfo, error) {
 	return info, nil
 }
 
+// isUSResidentialOperator 通过志愿者填写的 Operator 客户端特征识别家庭 PC
+func isUSResidentialOperator(op string) bool {
+	lower := strings.ToLower(strings.TrimSpace(op))
+	if lower == "" {
+		return false
+	}
+	if strings.Contains(lower, "desktop-") || strings.Contains(lower, "laptop-") ||
+		strings.Contains(lower, "msi's") || strings.Contains(lower, "home") ||
+		strings.Contains(lower, "family") || strings.Contains(lower, "owner") {
+		return true
+	}
+	return false
+}
+
 // extractISPFromName 从主机名或 PTR 反向解析域名中提取人能读懂的运营商名。
 func extractISPFromName(s string) string {
 	lower := strings.ToLower(s)
@@ -206,18 +220,18 @@ func extractISPFromName(s string) string {
 		return "Comcast (Xfinity)"
 	case strings.Contains(lower, "spectrum") || strings.Contains(lower, "charter") || strings.Contains(lower, "rr.com"):
 		return "Charter Spectrum"
+	case strings.Contains(lower, "frontier") || strings.Contains(lower, "frontiernet"):
+		return "Frontier Fiber"
+	case strings.Contains(lower, "suddenlink") || strings.Contains(lower, "altice") || strings.Contains(lower, "optimum"):
+		return "Altice / Optimum"
 	case strings.Contains(lower, "at&t") || strings.Contains(lower, "att") || strings.Contains(lower, "sbcglobal") || strings.Contains(lower, "bellsouth"):
 		return "AT&T"
 	case strings.Contains(lower, "verizon") || strings.Contains(lower, "fios"):
 		return "Verizon Fios"
 	case strings.Contains(lower, "cox"):
 		return "Cox Communications"
-	case strings.Contains(lower, "frontier"):
-		return "Frontier"
 	case strings.Contains(lower, "centurylink") || strings.Contains(lower, "lumen") || strings.Contains(lower, "brightspeed"):
 		return "CenturyLink"
-	case strings.Contains(lower, "optimum") || strings.Contains(lower, "suddenlink") || strings.Contains(lower, "altice"):
-		return "Optimum"
 	case strings.Contains(lower, "mediacom"):
 		return "Mediacom"
 	case strings.Contains(lower, "starlink"):
@@ -234,10 +248,19 @@ func extractISPFromName(s string) string {
 // 确保不会漏掉真实的家宽志愿者节点。
 func enrichUSResidentialNodes(nodes []Node) {
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 16)
+	sem := make(chan struct{}, 20)
+
+	// 使用公共 DNS (8.8.8.8:53) 直接执行 PTR 解析，避免被 VPS 本地内网 DNS 屏蔽或超时
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 3 * time.Second}
+			return d.DialContext(ctx, "udp", "8.8.8.8:53")
+		},
+	}
 
 	for i := range nodes {
-		if !strings.EqualFold(nodes[i].CountryCode, "US") || nodes[i].IsResidential {
+		if !strings.EqualFold(nodes[i].CountryCode, "US") {
 			continue
 		}
 		ip := nodes[i].IP
@@ -250,9 +273,9 @@ func enrichUSResidentialNodes(nodes []Node) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			names, err := net.DefaultResolver.LookupAddr(ctx, targetIP)
+			names, err := resolver.LookupAddr(ctx, targetIP)
 			if err == nil {
 				for _, name := range names {
 					if isUSResidentialHost(name) {

@@ -49,6 +49,7 @@ type Node struct {
 	IsResidential bool    `json:"is_residential"`
 	ISP           string  `json:"isp,omitempty"`
 	Source        string  `json:"source,omitempty"` // "vpngate" | "custom"
+	Operator      string  `json:"operator,omitempty"`
 }
 
 // fetchNodes 拉取并解析 VPN Gate 的节点列表。
@@ -58,21 +59,76 @@ func fetchNodes(timeout time.Duration) ([]Node, error) {
 	return fetchNodesWith(vpngateAPI, timeout)
 }
 
-// fetchNodesWith 把直连地址拆成参数，方便测试两条分支。
+// fetchNodesWith 并发拉取官方直连源与反代镜像源，并将节点去重聚合，
+// 最大化节点池覆盖面（特别是稀缺的美国家宽节点）。
 func fetchNodesWith(direct string, timeout time.Duration) ([]Node, error) {
-	nodes, err := fetchNodesFrom(direct, "", timeout)
-	if err == nil {
-		return nodes, nil
+	type fetchRes struct {
+		nodes []Node
+		err   error
 	}
-	mirror := mirrorURL()
-	if mirror == "" {
-		return nil, err
+
+	sources := []struct {
+		url string
+		key string
+	}{
+		{url: direct, key: ""},
 	}
-	nodes, mirrorErr := fetchNodesFrom(mirror, mirrorAccessKey(), timeout)
-	if mirrorErr != nil {
-		return nil, fmt.Errorf("直连失败(%v)；反代也失败: %w", err, mirrorErr)
+	if mirror := mirrorURL(); mirror != "" {
+		sources = append(sources, struct {
+			url string
+			key string
+		}{url: mirror, key: mirrorAccessKey()})
 	}
-	return nodes, nil
+
+	resCh := make(chan fetchRes, len(sources))
+	for _, s := range sources {
+		go func(targetURL, targetKey string) {
+			list, err := fetchNodesFrom(targetURL, targetKey, timeout)
+			resCh <- fetchRes{nodes: list, err: err}
+		}(s.url, s.key)
+	}
+
+	var all []Node
+	var lastErr error
+	for i := 0; i < len(sources); i++ {
+		res := <-resCh
+		if res.err != nil {
+			lastErr = res.err
+			continue
+		}
+		all = append(all, res.nodes...)
+	}
+
+	if len(all) == 0 {
+		return nil, fmt.Errorf("所有节点源拉取失败: %w", lastErr)
+	}
+
+	// 按 IP（或 HostName）合并去重，并保留家宽属性与最优网速
+	seen := make(map[string]int) // key -> index in merged
+	var merged []Node
+	for _, n := range all {
+		key := n.IP
+		if key == "" {
+			key = n.HostName
+		}
+		if idx, exists := seen[key]; exists {
+			if n.IsResidential && !merged[idx].IsResidential {
+				merged[idx].IsResidential = true
+				if merged[idx].ISP == "" {
+					merged[idx].ISP = n.ISP
+				}
+			}
+			if n.SpeedMbps > merged[idx].SpeedMbps {
+				merged[idx].SpeedMbps = n.SpeedMbps
+			}
+			continue
+		}
+		seen[key] = len(merged)
+		merged = append(merged, n)
+	}
+
+	sort.Slice(merged, func(i, j int) bool { return merged[i].SpeedMbps > merged[j].SpeedMbps })
+	return merged, nil
 }
 
 func fetchNodesFrom(url, key string, timeout time.Duration) ([]Node, error) {
@@ -155,11 +211,14 @@ func parseNodeCSV(body string) ([]Node, error) {
 		sessions, _ := strconv.Atoi(get("NumVpnSessions"))
 		cc := strings.ToUpper(strings.TrimSpace(get("CountryShort")))
 		hostName := get("HostName")
+		operator := get("Operator")
 		isRes := false
 		isp := ""
-		if cc == "US" && isUSResidentialHost(hostName) {
-			isRes = true
-			isp = "Residential Broadband"
+		if cc == "US" {
+			if isUSResidentialHost(hostName) || isUSResidentialOperator(operator) {
+				isRes = true
+				isp = "Residential Broadband"
+			}
 		}
 		nodes = append(nodes, Node{
 			HostName:      hostName,
@@ -173,6 +232,7 @@ func parseNodeCSV(body string) ([]Node, error) {
 			IsResidential: isRes,
 			ISP:           isp,
 			Source:        "vpngate",
+			Operator:      operator,
 		})
 	}
 	if len(nodes) == 0 {
